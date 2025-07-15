@@ -1,8 +1,10 @@
 # Recitation
 
+## This is a Python project for the **Recitation** program at Samuel School.
 
-This is a Python project for the **Recitation** at Samuel School.
+### The latest version is based on the 41st Samuel School.
 
-the latest version is depend on 41st Samuel School.
+### > ⚠️ This project has not been officially released yet.  
+### > To use it, you must run the `.py` files directly using Python.
 
-For more information, please visit [jbch.org](https://jbch.org).
+####For more information, please visit [jbch.org](https://jbch.org).
