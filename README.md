@@ -1,6 +1,6 @@
 # Recitation
 
-#### This is a Python project for the **Recitation** at Samuel School.
+### This is a Python project for the **Recitation** at Samuel School.
 
 The latest version is based on the 41st Samuel School.
 
