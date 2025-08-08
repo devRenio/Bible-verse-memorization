@@ -3,6 +3,25 @@ import random
 import re
 from tkinter import font as tkFont
 from tkinter import ttk
+import sys, os
+from pathlib import Path
+from tkinter import messagebox
+
+if sys.platform == "win32":
+    import ctypes
+    try:
+        # Per-Monitor DPI Aware v2 (가장 선명)
+        ctypes.windll.user32.SetProcessDpiAwarenessContext(ctypes.c_void_p(-4))
+    except Exception:
+        try:
+            # Per-Monitor DPI Aware (대안)
+            ctypes.windll.shcore.SetProcessDpiAwareness(2)
+        except Exception:
+            try:
+                # System DPI Aware (최후 대안)
+                ctypes.windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
 
 # 문제를 생성하는 함수
 def create_blank_problem(scripture, mode):
@@ -14,31 +33,19 @@ def create_blank_problem(scripture, mode):
     print(reference, verse, "\n")
     
     if mode == 1:  # 빈칸 모드
-        mode1_num = blank_num
-        num_blanks = int(num_words * blank_num * 0.1)
-        blank_indices = []
-        while len(blank_indices) < num_blanks:
-            rand_num = random.randint(0, num_words - 1)
-            if rand_num in blank_indices:
-                continue
-            blank_indices.append(rand_num)
-        blank_indices.sort()
-        answers = []
-        for i in blank_indices:
-            answers.append(words[i])
-        problem_words = ""
-        for i in range(num_words):
-            if i in blank_indices:
-                problem_words += '_' * len(words[i])
-            else:
-                problem_words += words[i]
-            problem_words += " "
-        problem_text = reference + " " + problem_words
+        num_words = len(words)
+        num_blanks = int(num_words * max(blank_num, 0) * 0.1)
+        num_blanks = max(0, min(num_blanks, num_words))
+        blank_indices = sorted(random.sample(range(num_words), num_blanks)) if num_blanks else []
+
+        answers = [words[i] for i in blank_indices]
+        problem_words = [('_' * len(w) if i in blank_indices else w) for i, w in enumerate(words)]
+        problem_text = reference + " " + " ".join(problem_words)
         return problem_text, answers, reference
 
-    elif mode == 2:  # 구절 모드
-        problem_words = ['_ ' * len(words)]  # 구절은 전부 빈칸
-        answers = words
+    elif mode == 2:  # 구절 모드(길이 힌트 없음)
+        problem_words = ['_' for _ in words]
+        answers = words[:]
         problem_text = reference + " " + ' '.join(problem_words)
         return problem_text, answers, reference
 
@@ -53,24 +60,29 @@ def create_blank_problem(scripture, mode):
         return problem_text, answers, reference
 
     elif mode == 4:  # 전체 모드
-        # 랜덤하게 whole_level_num개의 연속된 단어 선택
-        rand_index = random.randint(0, len(words) - whole_level_num)
-        visible_words = words[rand_index:rand_index + whole_level_num]
+        # 안전 캡 (절 길이보다 큰 요청 방지)
+        n = min(whole_level_num, len(words))
 
-        # 처음 나타난 두 단어만 표시하고, 나머지는 빈칸 처리
+        # 랜덤하게 n개의 연속된 단어 선택
+        rand_index = random.randint(0, len(words) - n)
+        visible_words = words[rand_index:rand_index + n]
+
+        # 처음 나타난 n-그램만 그대로, 나머지는 빈칸
         first_occurrence = True
         problem_words = []
-
-        for i in range(len(words) - 1):
-            if words[i:i+whole_level_num] == visible_words and first_occurrence:
+        i = 0
+        while i < len(words):
+            if first_occurrence and i <= len(words) - n and words[i:i+n] == visible_words:
                 problem_words.extend(visible_words)
                 first_occurrence = False
+                i += n                       # ★ 블록 길이만큼 건너뜀
             else:
                 problem_words.append('_')
+                i += 1
 
-        # 장절 정보에서 책, 장, 절 추출
+        # 장절 정보 추출
         reference_parts = reference.split()
-        book = reference_parts[0][1:]  # 책 이름 (첫 글자 제외)
+        book = reference_parts[0][1:]
         chapter, verse_num = reference_parts[1].split(':')
         verse_num = verse_num[:-1]
 
@@ -80,13 +92,14 @@ def create_blank_problem(scripture, mode):
         answers = [book, chapter, verse_num]
         i = 0
         while i < len(words):
-            if i <= len(words) - whole_level_num and words[i:i+whole_level_num] == visible_words:
-                i += whole_level_num  # visible_words만큼 건너뜀
+            if i <= len(words) - n and words[i:i+n] == visible_words:
+                i += n
             else:
                 answers.append(words[i])
                 i += 1
 
         return problem_text, answers, reference
+
 
 def blank_level():
     blank_level_window = tk.Toplevel()
@@ -132,67 +145,66 @@ def display_problem(mode):
     problem_text_box.config(state=tk.DISABLED)
     answer_text_box.delete(1.0, tk.END)
 
-# 답안을 제출하는 함수
+# 답안 제출 함수
 def submit_answer(event=None):
     global attempts, problem_completed, scripture, problem_num, left_verse, fail_num
     user_answer = answer_text_box.get(1.0, tk.END).strip()
 
     if left_verse:
-        try:
-            if problem_completed or current_answers[0] == None:
+        if problem_completed or not current_answers:
+            # 완료/소진 시 다음 문제로 (기존 semantics 유지)
+            try:
                 scripture.pop(problem_num)
                 left_verse -= 1
-                reload_texts()
-                display_problem(current_mode)
-            elif user_answer == current_answers[0]:
-                replace_blank_with_answer(current_answers[0], 1)
-                current_answers.pop(0)  # 정답 맞춘 단어 제거
-                answer_text_box.delete(1.0, tk.END)
-                attempts = 0
-                
-                if not current_answers:
-                    problem_completed = True
-            else:
-                attempts += 1
-                answer_text_box.delete(1.0, tk.END)
-                
-                if attempts >= 3:
-                    replace_blank_with_answer(current_answers[0], 0)
-                    current_answers.pop(0)
-                    fail_num += 1
-                    reload_texts()
-                    attempts = 0
-                    
-                    if not current_answers:
-                        problem_completed = True
-        except:
-            scripture.pop(problem_num)
-            left_verse -= 1
+            except Exception:
+                pass
             reload_texts()
             display_problem(current_mode)
+            answer_text_box.delete(1.0, tk.END)
+            return "break" if event else None
+
+        # 문자 그대로 일치 (의도 유지)
+        if user_answer == current_answers[0]:
+            replace_blank_with_answer(current_answers[0], 1)
+            current_answers.pop(0)
+            answer_text_box.delete(1.0, tk.END)
+            attempts = 0
+            if not current_answers:
+                problem_completed = True
+        else:
+            attempts += 1
+            answer_text_box.delete(1.0, tk.END)
+            if attempts >= 3:
+                replace_blank_with_answer(current_answers[0], 0)
+                current_answers.pop(0)
+                fail_num += 1
+                reload_texts()
+                attempts = 0
+                if not current_answers:
+                    problem_completed = True
     else:
         answer_text_box.delete(1.0, tk.END)
+
+    return "break" if event else None 
 
 # 빈칸을 정답으로 대체하는 함수
 def replace_blank_with_answer(answer, correct):
     global current_problem
-    test_index = current_problem.index('_')
-    # 단어 길이에 관계없이 빈칸을 맞춘 답으로 대체 (정규 표현식 사용)
+    try:
+        test_index = current_problem.index('_')
+    except ValueError:
+        return
+
     current_problem = re.sub(r'(_+)', answer, current_problem, count=1)
+
     problem_text_box.config(state=tk.NORMAL)
     problem_text_box.delete(1.0, tk.END)
-    # 태그 정의: 답을 강조하기 위한 태그 설정
-    if correct :
-        problem_text_box.tag_configure("highlight", foreground="black")
-    else :
-        problem_text_box.tag_configure("highlight", foreground="red")
 
-    # 정답을 삽입한 텍스트 박스에 삽입
+    problem_text_box.tag_configure("highlight", foreground=("black" if correct else "red"))
     problem_text_box.insert(tk.END, current_problem)
 
-    # 정답 범위에 태그 적용
-    start_index = f"1.{test_index}"
-    end_index = f"1.{test_index + len(answer)}"
+    start_index = f"1.0 + {test_index} chars"
+    end_index   = f"1.0 + {test_index + len(answer)} chars"
     problem_text_box.tag_add("highlight", start_index, end_index)
     problem_text_box.config(state=tk.DISABLED)
 
@@ -396,35 +408,204 @@ original_scriptures = [
 
 # GUI 설정
 root = tk.Tk()
-root.tk.call('tk', 'scaling', 1.5)
+root.tk.call('tk', 'scaling', 1.0)
 root.title("과정을 선택해 주세요.")
+root.geometry("900x600")               # 기본 창 크기
+root.minsize(450, 300)                  # 최소 크기
+root.option_add("*Font", ("맑은 고딕", 15))
+root.grid_rowconfigure(1, weight=1)
+root.grid_columnconfigure(0, weight=1)
 
-frame = tk.Frame(root, width=800, height=400)
-frame.pack_propagate(False)  # 프레임이 자식 위젯에 맞춰 크기를 바꾸지 않도록 설정
-frame.pack()
+def resource_path(rel: str) -> str:
+    # PyInstaller 실행파일(임시폴더 _MEIPASS)과 개발환경 둘 다 지원
+    base = getattr(sys, "_MEIPASS", Path(__file__).parent)
+    return str(Path(base, rel))
 
-font_size = 15
-font_form = "Arial"
+# 1) 우선 Windows에서는 .ico 시도
+try:
+    if sys.platform == "win32":
+        ico = resource_path("samuel_icon.ico")
+        if Path(ico).exists():
+            root.iconbitmap(ico)   # 파일 경로 반드시 절대/정규화
+        else:
+            raise FileNotFoundError(ico)
+    else:
+        raise OSError("iconbitmap not reliable on this platform")
+except Exception:
+    # 2) 모든 OS에서 동작하는 대안: PNG로 창 아이콘 설정 (Tk 8.6+)
+    try:
+        png = resource_path("samuel_icon.png")  # 같은 폴더에 PNG도 준비
+        if Path(png).exists():
+            img = tk.PhotoImage(file=png)
+            root.wm_iconphoto(True, img)
+    except Exception:
+        pass  # 아이콘 설정 실패해도 앱은 계속 뜨게
+
+def init_ui_fonts(root, family="맑은 고딕", size=13):
+    import tkinter.ttk as ttk
+    from tkinter import font as tkFont
+
+    # Tk 기본 폰트들(이미 생성된 위젯도 자동 반영)
+    for name in ("TkDefaultFont", "TkTextFont", "TkMenuFont", "TkHeadingFont", "TkTooltipFont"):
+        try:
+            f = tkFont.nametofont(name)
+            f.configure(family=family, size=size)
+        except Exception:
+            pass
+
+    # ttk 위젯(버튼/라벨 등)에도 적용
+    try:
+        style = ttk.Style(root)
+        style.configure(".", font=(family, size))
+        style.configure("TButton", font=(family, size))
+    except Exception:
+        pass
+
+init_ui_fonts(root, family="맑은 고딕", size=13)
+
+font_size = 30
+font_form = "맑은 고딕"
+font_style_var = tk.StringVar(value="맑은 고딕")
 
 # 볼드체 상태 변수
 bold_var = tk.BooleanVar(value=False)
 
 def update_font():
-    """선택된 폰트 스타일과 크기를 반영하여 레이블의 폰트를 업데이트합니다."""
     selected_font = font_style_var.get()
     selected_size = font_size_var.get()
     is_bold = bold_var.get()
+    f = tkFont.Font(
+        family=selected_font,
+        size=selected_size,
+        weight='bold' if is_bold else 'normal',
+        slant='roman'
+    )
+    answer_text_box.config(font=f)
+    problem_text_box.config(font=f)
 
-    # 볼드체 적용
-    font_style = "bold" if is_bold else ""
-    new_font = (selected_font, selected_size, font_style)
-    answer_text_box.config(font=new_font)
-    problem_text_box.config(font=new_font)
+# ADD: 글꼴/크기/진하게/초기화 통합 팝업
+def open_font_popup():
+    win = tk.Toplevel(root)
+    win.title("글꼴 설정")
+    win.resizable(False, False)
+    
+    include_vertical = tk.BooleanVar(value=False)
+    qvar = tk.StringVar(value="")
+
+    # 좌상단: 검색 입력 + @포함 체크
+    tk.Label(win, text="검색:").grid(row=0, column=0, padx=8, pady=6, sticky="w")
+    entry = ttk.Entry(win, textvariable=qvar, width=26)
+    entry.grid(row=0, column=1, padx=4, pady=6, sticky="we")
+    chk = ttk.Checkbutton(win, text="@ 세로쓰기 포함", variable=include_vertical)
+    chk.grid(row=0, column=2, padx=8, pady=6, sticky="e")
+
+    # 폰트 리스트
+    lst = tk.Listbox(win, height=14, width=34, activestyle="dotbox", exportselection=False)
+    lst.grid(row=1, column=0, columnspan=3, padx=8, pady=(0,8), sticky="nsew")
+    sb = ttk.Scrollbar(win, orient="vertical", command=lst.yview)
+    sb.grid(row=1, column=3, sticky="ns", pady=(0,8))
+    lst.config(yscrollcommand=sb.set)
+
+    # 미리보기
+    sample = tk.Label(win, text="가나다 ABC 123 — Preview")
+    sample.grid(row=2, column=0, columnspan=3, padx=8, pady=(0,4))
+
+    # 크기 슬라이더 + 진하게 + 초기화/적용/닫기
+    ctrl = tk.Frame(win)
+    ctrl.grid(row=3, column=0, columnspan=3, pady=6, padx=8, sticky="we")
+
+    tk.Label(ctrl, text="크기:").pack(side="left")
+    size_scale = ttk.Scale(ctrl, from_=8, to=48, value=font_size_var.get(),
+                           command=lambda _=None: apply_preview())
+    size_scale.pack(side="left", padx=6)
+    bold_chk = ttk.Checkbutton(ctrl, text="진하게", variable=bold_var,
+                               command=lambda: apply_preview())
+    bold_chk.pack(side="left", padx=10)
+
+    ttk.Button(ctrl, text="초기화", command=lambda: do_reset()).pack(side="right", padx=4)
+    ttk.Button(ctrl, text="적용", command=lambda: do_apply()).pack(side="right", padx=4)
+    ttk.Button(ctrl, text="닫기", command=win.destroy).pack(side="right", padx=4)
+
+    # 레이아웃 확장
+    win.grid_columnconfigure(1, weight=1)
+    win.grid_rowconfigure(1, weight=1)
+
+    # 내부 상태
+    all_fonts = get_all_fonts(root, include_vertical.get())
+    filtered = all_fonts[:]
+
+    def populate(items, keep_current=True):
+        lst.delete(0, tk.END)
+        for f in items:
+            lst.insert(tk.END, f)
+        if keep_current and font_style_var.get() in items:
+            idx = items.index(font_style_var.get())
+            lst.selection_set(idx); lst.see(idx)
+        elif items:
+            lst.selection_set(0)
+
+    def current_family():
+        sel = lst.curselection()
+        if sel:
+            return lst.get(sel[0])
+        # 선택 없으면 현재 전역값
+        return font_style_var.get()
+
+    def apply_preview():
+        fam = current_family()
+        size = int(round(float(size_scale.get())))
+        f = tkFont.Font(
+            family=fam, size=size,
+            weight='bold' if bold_var.get() else 'normal',
+            slant='roman'
+        )
+        sample.config(font=f)
+
+    def refresh():
+        nonlocal all_fonts, filtered
+        all_fonts = get_all_fonts(root, include_vertical.get())
+        q = qvar.get().lower()
+        filtered = [f for f in all_fonts if q in f.lower()]
+        populate(filtered)
+        apply_preview()
+
+    def on_select(_=None):
+        apply_preview()
+
+    def on_search(_=None):
+        refresh()
+
+    def on_toggle_vertical():
+        refresh()
+
+    def do_reset():
+        reset_font()
+        refresh()
+
+    def do_apply():
+        fam = current_family()
+        font_style_var.set(fam)
+        font_size_var.set(int(round(float(size_scale.get()))))
+        update_font()
+
+    # 바인딩
+    lst.bind("<<ListboxSelect>>", on_select)
+    entry.bind("<KeyRelease>", on_search)
+    chk.config(command=on_toggle_vertical)
+    size_scale.bind("<ButtonRelease-1>", lambda e: apply_preview())
+
+    # 초기 채움
+    populate(filtered)
+    apply_preview()
+
+def get_all_fonts(root, include_vertical=False):
+    fams = sorted(tkFont.families(root))
+    return fams if include_vertical else [f for f in fams if not f.startswith('@')]
 
 def reset_font():
     """폰트를 기본값으로 초기화합니다."""
-    font_style_var.set("Arial")
-    font_size_var.set(15)
+    font_style_var.set("맑은 고딕")
+    font_size_var.set(30)
     bold_var.set(False)  # 볼드체 초기화
     update_font()
     
@@ -454,15 +635,46 @@ def update_font_and_label(size_value_label):
     size_value_label.config(text=str(font_size_var.get()))
     update_font()
 
-    
-# 문제 텍스트박스 (수정 불가)
-problem_text_box = tk.Text(frame, font=(font_form, font_size), wrap=tk.WORD, state=tk.DISABLED)
-problem_text_box.pack(pady=(0, 10))
+APP_NAME = "Samuel Memorization"
+APP_VERSION = "버전 : 제42기 사무엘학교"
+APP_DESC = (
+    "제출 : [ Space ]\n"
+    "문자 그대로 일치해야 정답이 인정됩니다.\n"
+    "세 번 틀린 후에 정답이 공개됩니다.\n\n"
+    "문의 / 건의 :\n서울양천교회 공은호 형제 (깨사모 쪽지)\n\n"
+    "감사합니다."
+)
 
-# 답안 텍스트박스 (수정 가능)
+# 앱 정보 표시 함수
+def show_about():
+    info = (
+        f"{APP_NAME}\n{APP_VERSION}\n\n"
+        f"{APP_DESC}"
+    )
+    messagebox.showinfo("정보", info)
+
+# 문제 텍스트박스 + 스크롤
+problem_frame = tk.Frame(root)
+problem_frame.grid(row=1, column=0, sticky="nsew", padx=12, pady=(8, 6))
+problem_frame.grid_rowconfigure(0, weight=1)
+problem_frame.grid_columnconfigure(0, weight=1)
+
+problem_text_box = tk.Text(
+    problem_frame,
+    font=(font_form, font_size),
+    wrap=tk.WORD,
+    state=tk.DISABLED
+)
+problem_text_box.grid(row=0, column=0, sticky="nsew")
+
+problem_scroll = ttk.Scrollbar(problem_frame, orient="vertical", command=problem_text_box.yview)
+problem_scroll.grid(row=0, column=1, sticky="ns")
+problem_text_box.config(yscrollcommand=problem_scroll.set)
+
+# 답안 텍스트박스
 answer_text_box = tk.Text(root, height=1, width=30, font=(font_form, font_size), wrap=tk.WORD)
-answer_text_box.pack(pady=10)
-answer_text_box.bind("<space>", submit_answer)  # 스페이스바로 답 제출
+answer_text_box.grid(row=2, column=0, sticky="we", padx=12, pady=(0, 10))
+answer_text_box.bind("<space>", submit_answer)
 
 def select_course(course_number):
     global selected_scriptures
@@ -495,7 +707,10 @@ def create_slider_window(title, min_value, max_value, update_func):
     )
     slider.pack(padx=10, pady=10)
 
-root.title("samuel_recitation")
+def skip_problem():
+    display_problem(current_mode)
+
+root.title("samuel_memorization")
 
 # 메뉴바 생성
 menu_bar = tk.Menu(root)
@@ -520,49 +735,19 @@ day_menu.add_command(label="초기화", command=lambda : day_reset())
 
 menu_bar.add_cascade(label="일차", menu=day_menu)
 
-# 글꼴 메뉴 생성
-font_menu = tk.Menu(menu_bar, tearoff=0)
-menu_bar.add_cascade(label="글꼴", menu=font_menu)
+menu_bar.add_command(label="글꼴", command=open_font_popup)
 
-# 폰트 크기 선택 슬라이더
-font_size_var = tk.IntVar(value=15)  # 기본 크기 설정
-font_menu.add_command(label="크기", command=lambda: create_size_slider())
+menu_bar.add_command(label="정보", command=show_about)
+root.bind("<F1>", lambda e: show_about())
 
-# 폰트 스타일 선택
-font_style_var = tk.StringVar(value="Arial")  # 기본 폰트 설정
-font_menu.add_cascade(label="모양", menu=tk.Menu(font_menu, tearoff=0))
-for font in ["Times", "Georgia", "Garamond", "Helvetica", "Arial", "Verdana", "Tahoma", "Courier", "Lucida Console", "Consolas","Comic Sans MS", "Impact", "Palatino"]:
-    font_menu.children["!menu"].add_radiobutton(label=font, variable=font_style_var, command=update_font)
-
-# 글꼴 옆에 너비/높이 조정 메뉴 생성
-size_menu = tk.Menu(menu_bar, tearoff=0)
-menu_bar.add_cascade(label="크기", menu=size_menu)
-
-# 너비 조정 슬라이더
-def update_width(val):
-    problem_text_box.config(width=int(val))  # 문제 텍스트 박스의 너비를 업데이트
-
-size_menu.add_command(label="너비", command=lambda: create_slider_window("너비", 20, 100, update_width))
-
-# 높이 조정 슬라이더
-def update_height(val):
-    problem_text_box.config(height=int(val))  # 문제 텍스트 박스의 높이를 업데이트
-
-size_menu.add_command(label="높이", command=lambda: create_slider_window("높이", 5, 30, update_height))
-
-# 볼드체 토글 추가
-font_menu.add_checkbutton(label="진하게", variable=bold_var, command=update_font)
-
-# 초기화 커맨드 추가
-font_menu.add_separator()
-font_menu.add_command(label="초기화", command=reset_font)
+font_size_var = tk.IntVar(value=30)  # 기본 크기 설정
 
 # 메뉴바 설정
 root.config(menu=menu_bar)
 
 # 모드 선택 버튼
 mode_buttons_frame = tk.Frame(root)
-mode_buttons_frame.pack(pady=5)
+mode_buttons_frame.grid(row=0, column=0, sticky="we", padx=12, pady=(8, 4))
 
 blank_num = 5
 blank_mode_button = tk.Button(mode_buttons_frame, text="빈칸 모드", command=lambda: blank_level())
@@ -578,7 +763,7 @@ full_mode_button = tk.Button(mode_buttons_frame, text="전체 모드", command=l
 full_mode_button.pack(side=tk.LEFT, padx=5)
 
 text_frame = tk.Frame(root)
-text_frame.pack()
+text_frame.grid(row=3, column=0, sticky="we", padx=12, pady=(0, 8))
 
 course = "과정 미선택"
 course_label = tk.Label(text_frame, text=course)
@@ -591,6 +776,10 @@ left_verse_label.pack(side=tk.LEFT, padx=5)
 fail_num = 0
 fail_num_label = tk.Label(text_frame, text="틀린 갯수 : "+str(fail_num))
 fail_num_label.pack(side=tk.LEFT)
+
+# 버튼 추가(모드 버튼 영역)
+skip_button = tk.Button(text_frame, text="스킵", command=skip_problem)
+skip_button.pack(side=tk.LEFT, padx=5)
 
 current_mode = 1
 problem_num = 0
