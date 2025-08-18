@@ -212,7 +212,7 @@ def display_problem(mode):
 
 # 답안 제출 함수
 def submit_answer(event=None):
-    global attempts, problem_completed, scripture, problem_num, left_verse, fail_num
+    global attempts, problem_completed, scripture, problem_num, left_verse, fail_num, wrong_verses
     user_answer = answer_text_box.get(1.0, tk.END).strip()
 
     if left_verse:
@@ -239,7 +239,21 @@ def submit_answer(event=None):
         else:
             attempts += 1
             answer_text_box.delete(1.0, tk.END)
+            # 틀렸을 때 처리 부분에서 (attempts >= 3일 때)
             if attempts >= 3:
+                try:
+                    # 틀린 구절 저장
+                    wrong_verse = {
+                        'reference': current_reference,
+                        'verse': scripture[problem_num].split('^')[1],
+                        'full_text': scripture[problem_num]  # 전체 텍스트 저장
+                    }
+                except:
+                    pass
+                # 중복 방지 체크
+                if not any(w['full_text'] == wrong_verse['full_text'] for w in wrong_verses):
+                    wrong_verses.append(wrong_verse)
+                
                 replace_blank_with_answer(current_answers[0], 0)
                 current_answers.pop(0)
                 fail_num += 1
@@ -251,6 +265,60 @@ def submit_answer(event=None):
         answer_text_box.delete(1.0, tk.END)
 
     return "break" if event else None 
+
+# 틀린 구절 팝업
+def show_wrong_verses():
+    if not wrong_verses:
+        messagebox.showinfo("알림", "틀린 구절이 없습니다.")
+        return
+    
+    popup = tk.Toplevel(root)
+    popup.title("틀린 구절 모음")
+    popup.geometry("600x400")
+    popup.grid_rowconfigure(0, weight=1)
+    popup.grid_columnconfigure(0, weight=1)
+    
+    # 스크롤 가능한 텍스트 박스
+    frame = tk.Frame(popup)
+    frame.grid(row=0, column=0, sticky="nsew", padx=10, pady=10)
+    frame.grid_rowconfigure(0, weight=1)
+    frame.grid_columnconfigure(0, weight=1)
+    
+    current_font = (font_style_var.get(), 25, 'bold' if bold_var.get() else 'normal')
+    
+    text_box = tk.Text(frame, wrap=tk.WORD, font=current_font)
+    scrollbar = ttk.Scrollbar(frame, orient="vertical", command=text_box.yview)
+    text_box.config(yscrollcommand=scrollbar.set)
+    
+    text_box.grid(row=0, column=0, sticky="nsew")
+    scrollbar.grid(row=0, column=1, sticky="ns")
+    
+    # 틀린 구절들 표시
+    for i, wrong in enumerate(wrong_verses, 1):
+        text_box.insert(tk.END, f"{i}. {wrong['reference']} {wrong['verse']}\n\n")
+    
+    text_box.config(state=tk.DISABLED)
+    
+    # 암송 리스트에 추가 버튼
+    def add_to_memorization():
+        global scripture, left_verse, fail_num, wrong_verses
+        scripture = [w['full_text'] for w in wrong_verses]
+        left_verse = len(scripture)
+        fail_num = 0  # 틀린 갯수 초기화
+        wrong_verses = []  # 틀린 구절 목록 초기화
+        reload_texts()
+        
+        # 현재 보여주고 있는 문제 지우기
+        problem_text_box.config(state=tk.NORMAL)
+        problem_text_box.delete(1.0, tk.END)
+        problem_text_box.config(state=tk.DISABLED)
+        answer_text_box.delete(1.0, tk.END)
+        
+        popup.destroy()
+        messagebox.showinfo("완료", f"틀린 구절들이 암송 리스트에 추가되었습니다.\n틀린 구절 목록이 초기화되었습니다.")
+    
+    button = tk.Button(popup, text="틀린 구절 복습하기", command=add_to_memorization)
+    button.grid(row=1, column=0, pady=10)
 
 # 빈칸을 정답으로 대체하는 함수
 def replace_blank_with_answer(answer, correct):
@@ -296,10 +364,11 @@ def reload_texts():
     fail_num_label.config(text="틀린 갯수 : "+str(fail_num))
 
 def day_reset():
-    global scripture, left_verse, problem_text_box, fail_num
+    global scripture, left_verse, problem_text_box, fail_num, wrong_verses
     scripture = []
     left_verse = 0
     fail_num = 0
+    wrong_verses = []
     reload_texts()
     problem_text_box.config(state=tk.NORMAL)
     problem_text_box.delete(1.0, tk.END)
@@ -358,6 +427,8 @@ scripture = []
 selected_scriptures = [[], [], [], [], [], []]
 # 원본 구절
 original_scriptures = load_original_scriptures_txt()
+# 틀린 구절들을 저장할 리스트 (existing globals 근처에 추가)
+wrong_verses = []  # 각 항목: {'reference': str, 'verse': str, 'mode': int, 'blanks': list}
 
 def init_ui_fonts(root, family="맑은 고딕", size=13):
     import tkinter.ttk as ttk
@@ -554,13 +625,13 @@ def update_font_and_label(size_value_label):
     update_font()
 
 APP_NAME = "Samuel Memorization"
-APP_VERSION = "버전 : 제42기 사무엘학교"
+APP_VERSION = "버전 : 제42기 사무엘학교\n최신 버전 링크 :\nhttps://github.com/devRenio/Bible-verse-memorization"
 APP_DESC = (
     "제출 : [ Space ] 혹은 [ Enter ]\n"
     "문자 그대로 일치해야 정답이 인정됩니다.\n"
     "세 번 틀린 후에 정답이 공개됩니다.\n\n"
     "문의 / 건의 :\n서울양천교회 공은호 형제 (깨사모 쪽지)\n\n"
-    "감사합니다."
+    "개선점 / 오류 제보 언제나 감사합니다."
 )
 
 # 앱 정보 표시 함수
@@ -569,7 +640,28 @@ def show_about():
         f"{APP_NAME}\n{APP_VERSION}\n\n"
         f"{APP_DESC}"
     )
-    messagebox.showinfo("정보", info)
+
+    win = tk.Toplevel()
+    win.title("정보")
+    win.grab_set()
+    win.resizable(False, False)
+
+    text = tk.Text(win, wrap="word", height=15, width=40)
+    text.insert("1.0", info)
+    text.config(state="disabled")
+    text.pack(padx=12, pady=8)
+
+    # 확인 버튼
+    ok_btn = ttk.Button(win, text="확인", command=win.destroy)
+    ok_btn.pack(pady=(0, 8))
+
+def on_space_key(event):
+    if event.keycode == 229:  # Windows IME 조합 처리키
+        return
+    if event.char == " ":
+        root.after_idle(submit_answer)
+        return "break"  # space 입력 자체는 막고, 제출로만 처리
+
 
 # 문제 텍스트박스 + 스크롤
 problem_frame = tk.Frame(root)
@@ -592,8 +684,10 @@ problem_text_box.config(yscrollcommand=problem_scroll.set)
 # 답안 텍스트박스
 answer_text_box = tk.Text(root, height=1, width=30, font=(font_form, font_size), wrap=tk.WORD)
 answer_text_box.grid(row=2, column=0, sticky="we", padx=12, pady=(0, 10))
-answer_text_box.bind("<space>", submit_answer)
-answer_text_box.bind("<Return>", submit_answer)
+answer_text_box.unbind("<space>")
+answer_text_box.bind("<space>", on_space_key)
+answer_text_box.bind("<Return>", lambda e: (root.after_idle(submit_answer), "break")[1])
+answer_text_box.bind("<KP_Enter>", lambda e: (root.after_idle(submit_answer), "break")[1])
 
 def select_course(course_number):
     global selected_scriptures
@@ -696,9 +790,11 @@ fail_num = 0
 fail_num_label = tk.Label(text_frame, text="틀린 갯수 : "+str(fail_num))
 fail_num_label.pack(side=tk.LEFT)
 
-# 버튼 추가(모드 버튼 영역)
 skip_button = tk.Button(text_frame, text="스킵", command=skip_problem)
 skip_button.pack(side=tk.LEFT, padx=5)
+
+wrong_verses_button = tk.Button(text_frame, text="틀린 구절", command=show_wrong_verses)
+wrong_verses_button.pack(side=tk.RIGHT, padx=5)
 
 current_mode = 1
 problem_num = 0
