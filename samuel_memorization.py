@@ -315,10 +315,21 @@ def show_wrong_verses():
         answer_text_box.delete(1.0, tk.END)
         
         popup.destroy()
+        display_problem(current_mode)
         messagebox.showinfo("완료", f"틀린 구절들이 암송 리스트에 추가되었습니다.\n틀린 구절 목록이 초기화되었습니다.")
+
+    # 틀린 구절 초기화 버튼
+    def reset_wrong_verses():
+        global wrong_verses
+        wrong_verses = []  # 틀린 구절 목록 초기화
+        
+        popup.destroy()
+        messagebox.showinfo("완료", "틀린 구절 목록이 초기화되었습니다.")
     
-    button = tk.Button(popup, text="틀린 구절 복습하기", command=add_to_memorization)
+    button = tk.Button(popup, text="틀린 구절 복습", command=add_to_memorization)
     button.grid(row=1, column=0, pady=10)
+    button = tk.Button(popup, text="틀린 구절 초기화", command=reset_wrong_verses)
+    button.grid(row=2, column=0)
 
 # 빈칸을 정답으로 대체하는 함수
 def replace_blank_with_answer(answer, correct):
@@ -789,6 +800,9 @@ left_verse_label.pack(side=tk.LEFT, padx=5)
 fail_num = 0
 fail_num_label = tk.Label(text_frame, text="틀린 갯수 : "+str(fail_num))
 fail_num_label.pack(side=tk.LEFT)
+
+reset_button = tk.Button(text_frame, text="초기화", command=day_reset)
+reset_button.pack(side=tk.LEFT, padx=5)
 
 skip_button = tk.Button(text_frame, text="스킵", command=skip_problem)
 skip_button.pack(side=tk.LEFT, padx=5)
