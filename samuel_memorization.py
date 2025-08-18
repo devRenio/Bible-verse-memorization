@@ -642,7 +642,7 @@ def show_about():
     )
 
     win = tk.Toplevel()
-    win.title("정보")
+    win.title("앱 정보")
     win.grab_set()
     win.resizable(False, False)
 
