@@ -156,16 +156,23 @@ def create_blank_problem(scripture, mode):
         # 정답: 책, 장, 절 파트 + 가려진 단어들(문장부호 제거본)
         answers = [book, chap] + verse_parts
 
+        first_occurrence_for_answer = True  # ← 추가: answers에서도 첫 일치만 건너뛰기
         i = 0
         while i < len(words):
-            if i <= len(words) - n and words[i:i+n] == visible_words:
+            if (
+                first_occurrence_for_answer
+                and i <= len(words) - n
+                and words[i:i+n] == visible_words
+            ):
+                # 첫 번째 일치 구간만 스킵
+                first_occurrence_for_answer = False
                 i += n
             else:
                 answers.append(norm_token(words[i]))   # 쉼표 없는 정답 저장
                 i += 1
 
         return problem_text, answers, reference
-
+    
 def blank_level():
     blank_level_window = tk.Toplevel()
     blank_level_window.title("빈칸 난이도 선택")
