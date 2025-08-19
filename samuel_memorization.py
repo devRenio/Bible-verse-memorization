@@ -146,11 +146,12 @@ def create_blank_problem(scripture, mode):
         i = 0
         while i < len(words):
             if first_occurrence and i <= len(words) - n and words[i:i+n] == visible_words:
-                problem_words.extend(visible_words)    # 이 블록은 통째로 노출
+                problem_words.extend(visible_words)      # 이 블록 공개
                 first_occurrence = False
                 i += n
             else:
-                problem_words.append(mask_one_keep_punct(words[i]))  # 힌트 X
+                w = words[i]
+                problem_words.append(mask_one_keep_punct(w))  # 힌트 X
                 i += 1
 
         # 장절 마스킹
@@ -160,23 +161,19 @@ def create_blank_problem(scripture, mode):
 
         problem_text = ref_view + " " + " ".join(problem_words)
 
-        # 정답: 책, 장, 절 파트 + 가려진 단어들(문장부호 제거본)
         answers = [book, chap] + verse_parts
 
-        first_occurrence_for_answer = True  # ← 추가: answers에서도 첫 일치만 건너뛰기
         i = 0
+        skipped_once = False
         while i < len(words):
-            if (
-                first_occurrence_for_answer
-                and i <= len(words) - n
-                and words[i:i+n] == visible_words
-            ):
-                # 첫 번째 일치 구간만 스킵
-                first_occurrence_for_answer = False
+            if (not skipped_once) and i <= len(words) - n and words[i:i+n] == visible_words:
+                skipped_once = True
                 i += n
-            else:
-                answers.append(norm_token(words[i]))   # 쉼표 없는 정답 저장
-                i += 1
+                continue
+            w = words[i]
+            if WORD_TOKEN_RE.search(w):
+                answers.append(norm_token(w))
+            i += 1
 
         return problem_text, answers, reference
     
