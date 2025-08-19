@@ -25,6 +25,12 @@ if sys.platform == "win32":
 
 PUNCT_RE = re.compile(r'[,\-]')  # 쉼표/하이픈 무시용
 
+WORD_TOKEN_RE = re.compile(r'[0-9A-Za-z가-힣]')   # 글자가 하나라도 있는지
+PUNCT_RE = re.compile(r'[,\-/]')                 # ← 슬래시도 무시 대상에 포함
+
+def norm_token(s: str) -> str:
+    return PUNCT_RE.sub('', s).strip()
+
 def norm_token(s: str) -> str:
     """채점 및 정답 저장용: 쉼표/하이픈 제거."""
     return PUNCT_RE.sub('', s).strip()
@@ -90,7 +96,9 @@ def create_blank_problem(scripture, mode):
         num_words = len(words)
         num_blanks = int(num_words * max(blank_num, 0) * 0.1)
         num_blanks = max(0, min(num_blanks, num_words))
-        blank_indices = sorted(random.sample(range(num_words), num_blanks)) if num_blanks else []
+        maskable_idx = [i for i, w in enumerate(words) if WORD_TOKEN_RE.search(w)]
+        num_blanks = min(num_blanks, len(maskable_idx))
+        blank_indices = sorted(random.sample(maskable_idx, num_blanks)) if num_blanks else []
 
         # 정답은 문장부호 제거본으로 저장(중복 쉼표 방지)
         answers = [norm_token(words[i]) for i in blank_indices]
@@ -107,12 +115,11 @@ def create_blank_problem(scripture, mode):
         return problem_text, answers, reference
 
     elif mode == 2:
-        # 정답은 문장부호 제거본으로 저장
-        answers = [norm_token(w) for w in words]
-
-        # 화면은 길이 힌트 X + 문장부호 보존
-        problem_words = [mask_one_keep_punct(w) for w in words]
-
+        answers = [norm_token(w) for w in words if WORD_TOKEN_RE.search(w)]
+        problem_words = [
+            (mask_one_keep_punct(w) if WORD_TOKEN_RE.search(w) else w)
+            for w in words
+        ]
         ref_view = ref_masked(reference, masked=False)
         problem_text = ref_view + " " + " ".join(problem_words)
         return problem_text, answers, reference
@@ -522,11 +529,25 @@ def open_font_popup():
     ctrl.grid(row=3, column=0, columnspan=3, pady=6, padx=8, sticky="we")
 
     tk.Label(ctrl, text="크기:").pack(side="left")
-    size_scale = ttk.Scale(ctrl, from_=8, to=48, value=font_size_var.get(),
-                           command=lambda _=None: apply_preview())
+
+    size_value_label = tk.Label(ctrl, text=str(font_size_var.get()))
+    size_value_label.pack(side=tk.LEFT)
+
+    def update_size_label(val=None):
+        size = int(float(size_scale.get()))
+        size_value_label.config(text=str(size))
+        apply_preview()
+
+    size_scale = ttk.Scale(
+        ctrl, from_=8, to=100, value=font_size_var.get(),
+        command=update_size_label
+    )
     size_scale.pack(side="left", padx=6)
-    bold_chk = ttk.Checkbutton(ctrl, text="진하게", variable=bold_var,
-                               command=lambda: apply_preview())
+
+    bold_chk = ttk.Checkbutton(
+        ctrl, text="진하게", variable=bold_var,
+        command=lambda: apply_preview()
+    )
     bold_chk.pack(side="left", padx=10)
 
     ttk.Button(ctrl, text="초기화", command=lambda: do_reset()).pack(side="right", padx=4)
@@ -612,42 +633,17 @@ def get_all_fonts(root, include_vertical=False):
 def reset_font():
     """폰트를 기본값으로 초기화합니다."""
     font_style_var.set("맑은 고딕")
-    font_size_var.set(30)
+    font_size_var.set(50)
     bold_var.set(False)  # 볼드체 초기화
     update_font()
-    
-def create_size_slider():
-    """폰트 크기를 조정할 수 있는 슬라이더를 생성합니다."""
-    slider_window = tk.Toplevel(root)
-    slider_window.title("크기 설정")
-
-    # 글자 크기를 표시하는 라벨
-    size_label = tk.Label(slider_window, text="글자 크기 : ")
-    size_label.pack(side=tk.LEFT)
-
-    # 글자 크기 값을 표시할 라벨
-    size_value_label = tk.Label(slider_window, text=str(font_size_var.get()))
-    size_value_label.pack(side=tk.LEFT)
-
-    # 폰트 크기를 조절하는 슬라이더
-    size_slider = ttk.Scale(slider_window, from_=8, to=48, variable=font_size_var, 
-                            command=lambda x: update_font_and_label(size_value_label))
-    size_slider.pack(pady=20)
-
-    # 슬라이더 초기값 설정
-    size_slider.set(font_size_var.get())
 
 def update_font_and_label(size_value_label):
-    """슬라이더 값이 변경될 때 폰트 크기를 업데이트하고, 라벨에 값을 표시합니다."""
     size_value_label.config(text=str(font_size_var.get()))
     update_font()
 
 APP_NAME = "Samuel Memorization"
-APP_VERSION = "버전 : 제42기 사무엘학교\n최신 버전 링크 :\nhttps://github.com/devRenio/Bible-verse-memorization"
+APP_VERSION = "버전 : 제42기 사무엘학교\n\n최신 버전 다운로드 :\nhttps://github.com/devRenio/Bible-verse-memorization/releases/download/42SS/samuel_memorization.exe"
 APP_DESC = (
-    "제출 : [ Space ] 혹은 [ Enter ]\n"
-    "문자 그대로 일치해야 정답이 인정됩니다.\n"
-    "세 번 틀린 후에 정답이 공개됩니다.\n\n"
     "문의 / 건의 :\n서울양천교회 공은호 형제 (깨사모 쪽지)\n\n"
     "개선점 / 오류 제보 언제나 감사합니다."
 )
@@ -664,7 +660,7 @@ def show_about():
     win.grab_set()
     win.resizable(False, False)
 
-    text = tk.Text(win, wrap="word", height=15, width=40)
+    text = tk.Text(win, wrap="word", height=13, width=40)
     text.insert("1.0", info)
     text.config(state="disabled")
     text.pack(padx=12, pady=8)
@@ -741,6 +737,21 @@ def create_slider_window(title, min_value, max_value, update_func):
 def skip_problem():
     display_problem(current_mode)
 
+def mode_info():
+    messagebox.showinfo("도움말",
+                        "시작하는 방법 :\n과정 선택 -> 일차를 선택하여 목록에 추가 -> 모드 선택\n\n"
+                        "구절이 표시되는 텍스트박스에는 답을 입력할 수 없습니다.\n"
+                        "구절 텍스트박스 아래에 있는 답안 텍스트박스에 입력해 주세요.\n\n"
+                        "제출 : [ Space / Enter ]\n"
+                        "문자 그대로 일치해야 정답이 인정됩니다.\n"
+                        "세 번 틀린 후에 정답이 공개됩니다.\n\n"
+                        "한 어절 이상 공개된 구절은 틀린 구절 목록에 저장되며,\n"
+                        "틀린 구절만 복습할 수 있습니다.\n\n"
+                        "1. 빈칸 모드\n구절의 n%를 글자수가 표시되는 빈칸으로 대체합니다.\n0% : 빈칸 없음(암기용)\n100% : 글자수가 표시되는 구절 모드\n\n"
+                        "2. 구절 모드\n장절을 공개하고 모든 구절을 한 글자의 빈칸으로 대체합니다.\n\n"
+                        "3. 장절 모드\n구절을 공개하고 장절을 빈칸으로 대체합니다.\n\n"
+                        "4. 전체 모드\n구절의 연속된 n어절만 공개하고 모두 빈칸으로 대체합니다.")
+
 root.title("samuel_memorization")
 
 # 메뉴바 생성
@@ -792,6 +803,9 @@ reference_mode_button.pack(side=tk.LEFT, padx=5)
 
 full_mode_button = tk.Button(mode_buttons_frame, text="전체 모드", command=lambda: whole_level())
 full_mode_button.pack(side=tk.LEFT, padx=5)
+
+info_button = tk.Button(mode_buttons_frame, text="도움말", command=lambda: mode_info())
+info_button.pack(side=tk.LEFT, padx=5)
 
 text_frame = tk.Frame(root)
 text_frame.grid(row=3, column=0, sticky="we", padx=12, pady=(0, 8))
